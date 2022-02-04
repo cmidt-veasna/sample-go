@@ -217,12 +217,8 @@ func TestPoolWorker(t *testing.T) {
 				// the production result must not nil if emitter finish it work
 				task, ok := <-emitterDone
 				require.True(t, ok)
-				if tc.cancel != nil {
-					assert.Nil(t, task)
-				} else {
-					require.NotNil(t, task)
-					production[task.id] = task.data
-				}
+				require.NotNil(t, task)
+				production[task.id] = task.data
 			}
 
 			for _, task := range tasks {
