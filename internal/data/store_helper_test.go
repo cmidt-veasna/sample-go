@@ -1,6 +1,7 @@
 package data
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -11,24 +12,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ErrStreamClose use to replace `io.ErrClosedPipe`
+var ErrStreamClose = errors.New("stream has been closed")
+
 // StreamData is a utility instance to provide streaming random data on the fly
 // implement `io.ReadCloser` to support benchmark testing for large data
 // including latency simulation.
 type StreamData struct {
 	maxSize int            // A maximum size of data to be generated
-	bufGen  int            // size of generated source
+	bufGen  int            // size of buffer use when to generate source
 	latency time.Duration  // An estimated latency on stream data
 	vary    time.Duration  // A duration where latency can be vary
-	writer  *io.PipeWriter // source data will be writter to pipe writer
-	reader  *io.PipeReader // when io.Reader being we read from pipe reader
+	writer  *io.PipeWriter // all generated source will be written to this pipe
+	reader  *io.PipeReader // when call Read method of `io.Reader` the data is reading from this pipe
 }
 
 // newStreamData create an instance of `StreamData` represent virtual `io.Reader` which
 // providing a generated source streaming base on maximum size `maxSize`.
-// The `maxSize` must a be non negative integer and greater than zero. When both `estimatedLatency`
+// The `maxSize` must be a non negative integer and greater than zero. If both `estimatedLatency`
 // and `vary` duration is zero, the simulation latency will not occurred when reading the data
-// whereas if only the `very` duration is zero then the latency can be occorred bewteen 0 (no latency)
-// to maximum latency `estimatedLatency`
+// however if only the `very` duration is zero then the latency can be occorred bewteen 0 (no latency)
+// to maximum latency (`estimatedLatency`).
 func newStreamData(maxSize, bufGenSize int, estimatedLatency, vary time.Duration) *StreamData {
 	if maxSize <= 0 {
 		panic("stream data: maxSize must be non negative and greater than zero")
@@ -104,7 +108,7 @@ func (sd *StreamData) generateSource() {
 	sd.writer.Close()
 }
 
-// Close signal to the source generator routine to terminate it's job
+// Close signal to the source generator goroutine to terminate its job
 // and subsequence call to Read will return `ErrStreamClose`.
 func (sd *StreamData) Close() (err error) {
 	sd.writer.Close()
@@ -116,7 +120,10 @@ func (sd *StreamData) Close() (err error) {
 // or any error occurred during generated source. It will return `io.EOF`
 // stream read maximum limit generate source.
 func (sd *StreamData) Read(buf []byte) (n int, err error) {
-	return sd.reader.Read(buf)
+	if n, err = sd.reader.Read(buf); err == io.ErrClosedPipe {
+		err = ErrStreamClose
+	}
+	return n, err
 }
 
 type streamDataTestCase struct {
@@ -174,7 +181,7 @@ func TestStreamData(t *testing.T) {
 		stream := newStreamData(tc.maxSize, tc.bufSize, tc.latency, tc.vary)
 		// we don't really need to know what kind of underlying data that
 		// stream generated. We only need to make sure that the byte generate
-		// is match with maximum size.
+		// is equal to maximum size `tc.maxSize`.
 		totalSize := 0
 		for {
 			n, err := stream.Read(buf)
@@ -205,7 +212,7 @@ var (
 	}
 )
 
-// readStreamData read data from stream and discard it right away until reach io.EOF
+// readStreamData read data from stream and discard it right away until io.EOF
 func readStreamData(b *testing.B, stream *StreamData, bufSize int) {
 	buf := make([]byte, bufSize)
 	for {
