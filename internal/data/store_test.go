@@ -36,7 +36,7 @@ type task struct {
 	done   <-chan error
 }
 
-// In store only the below configuration is being thus we don't need to define other value
+// In store, only the below configuration is being use thus we don't need to define other value
 var defConf = config.Configuration{
 	RecieveWorker:  10,
 	EmitterWorker:  5,
@@ -44,7 +44,7 @@ var defConf = config.Configuration{
 	BufferSize:     config.ByteSize{Size: 1024 * 400}, // 400MB
 }
 
-// defEmitterWorker default emitter worker read the data from cache file and
+// defEmitterWorker is an emitter worker that read the data from cache file and
 // return the total data if nothing wrong. The worker will sleep for each time
 // after read a chuck of data from cache file.
 func defEmitterWorker(bufferSize int, pause time.Duration, discard bool, stop <-chan uint8, job EmitterJob) ([]byte, error) {
@@ -94,8 +94,8 @@ const (
 	hundrenGB = 100 * 1024 * 1024
 )
 
-// generateReaderByte generate random byte buffer as `io.Reader`.
-func generateReaderByte(preferSize, vary int) []byte {
+// generateByteData generate random byte data based on the given `preferSize` and `vary`.
+func generateByteData(preferSize, vary int) []byte {
 	total := preferSize + rand.Intn(vary)
 	buf := make([]byte, total)
 	n, err := rand.Read(buf)
@@ -112,19 +112,19 @@ var poolTests = []*poolTestCase{
 	{ // case 1
 		conf: defConf,
 		readers: [][]byte{
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(hundrenMB, tenMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(hundrenMB, tenMB),
 		},
 		pause: time.Millisecond * 200,
 	},
 	{ // case 2
 		conf: defConf,
 		readers: [][]byte{
-			generateReaderByte(tenMB, fiveMB),
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(hundrenMB, tenMB),
+			generateByteData(tenMB, fiveMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(hundrenMB, tenMB),
 		},
 		pause: time.Millisecond * 200,
 	},
@@ -136,9 +136,9 @@ var poolTests = []*poolTestCase{
 			BufferSize:     config.ByteSize{Size: 1024}, // 1MB
 		},
 		readers: [][]byte{
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(fiftyMB, tenMB),
-			generateReaderByte(hundrenMB, tenMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(fiftyMB, tenMB),
+			generateByteData(hundrenMB, tenMB),
 		},
 		cancel: func(tasks []*task) {
 			for _, task := range tasks {
@@ -193,11 +193,11 @@ func TestPoolWorker(t *testing.T) {
 			go tc.cancel(tasks)
 		}
 
-		// waiting result from the pool
-		// we don't need to urgently check for any of the job done
-		// we only care if worker does it jobs
+		// waiting for the result from the pool
+		// we don't need to urgently handle any of the finished recieving job
+		// we only care if worker does it jobs properly
 
-		// verify if reciever work done properly
+		// verify if reciever work finish the job properly
 		for _, task := range tasks {
 			err := <-task.done
 			task.cancel()
@@ -208,12 +208,12 @@ func TestPoolWorker(t *testing.T) {
 			}
 		}
 
-		// verify that emitter does read data properly in case the cancel is not happen
+		// verify that emitter read the data properly in case the cancel is not happen
 		if tc.cancel == nil {
 			production := make(map[string][]byte)
 			// wait for all emitter to finish
 			for i := 0; i < len(tc.readers); i++ {
-				// we don't need to know the data from emitterDone
+				// we don't need to know the data from channel emitterDone
 				// the production result must not nil if emitter finish it work
 				task, ok := <-emitterDone
 				require.True(t, ok)
@@ -221,6 +221,7 @@ func TestPoolWorker(t *testing.T) {
 				production[task.id] = task.data
 			}
 
+			// verify whether the emitter read the exact data that was given to the reciever
 			for _, task := range tasks {
 				require.NotNil(t, production[task.id])
 				assert.Equal(t, task.data, production[task.id])
